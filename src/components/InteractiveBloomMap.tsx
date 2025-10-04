@@ -1,200 +1,282 @@
 import { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { MapPin, Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MapPin, Flower2, Globe } from "lucide-react";
 
-// Sample bloom hotspot data
-const bloomHotspots = [
-  { name: "California Poppies", coords: [-119.4179, 36.7783], intensity: 95, species: "Eschscholzia californica" },
-  { name: "Cherry Blossoms", coords: [139.6503, 35.6762], intensity: 88, species: "Prunus serrulata" },
-  { name: "Lavender Fields", coords: [5.0493, 43.9493], intensity: 92, species: "Lavandula angustifolia" },
-  { name: "Sunflower Plains", coords: [-101.8313, 47.5515], intensity: 85, species: "Helianthus annuus" },
-  { name: "Tulip Gardens", coords: [4.6462, 52.2434], intensity: 90, species: "Tulipa gesneriana" },
-  { name: "Amazon Orchids", coords: [-60.0217, -3.4653], intensity: 78, species: "Orchidaceae" },
+// Seasonal flowering hotspot data
+const floweringData = {
+  spring: [
+    { lat: 34.05, lng: -118.24, intensity: 0.9, species: "California Poppy", region: "California, USA", type: "wild" },
+    { lat: 35.68, lng: 139.65, intensity: 0.95, species: "Cherry Blossom", region: "Tokyo, Japan", type: "temperate" },
+    { lat: 52.37, lng: 4.89, intensity: 0.85, species: "Tulip", region: "Netherlands", type: "agricultural" },
+    { lat: 30.26, lng: -97.74, intensity: 0.8, species: "Bluebonnet", region: "Texas, USA", type: "wild" },
+    { lat: 45.46, lng: 9.19, intensity: 0.7, species: "Almond Blossom", region: "Lombardy, Italy", type: "agricultural" },
+  ],
+  summer: [
+    { lat: 44.5, lng: 11.35, intensity: 0.9, species: "Sunflower", region: "Tuscany, Italy", type: "agricultural" },
+    { lat: 43.6, lng: 1.44, intensity: 0.85, species: "Lavender", region: "Provence, France", type: "agricultural" },
+    { lat: 49.28, lng: -123.12, intensity: 0.75, species: "Wildflowers", region: "British Columbia, Canada", type: "wild" },
+    { lat: 39.74, lng: -104.99, intensity: 0.8, species: "Mountain Wildflowers", region: "Colorado, USA", type: "wild" },
+    { lat: 18.52, lng: 73.85, intensity: 0.7, species: "Lotus", region: "Maharashtra, India", type: "tropical" },
+  ],
+  fall: [
+    { lat: 40.71, lng: -74.01, intensity: 0.6, species: "Chrysanthemum", region: "New York, USA", type: "temperate" },
+    { lat: 33.45, lng: -112.07, intensity: 0.7, species: "Desert Flowers", region: "Arizona, USA", type: "wild" },
+    { lat: 34.69, lng: 135.50, intensity: 0.8, species: "Cosmos", region: "Kyoto, Japan", type: "temperate" },
+    { lat: 31.97, lng: 35.94, intensity: 0.65, species: "Saffron Crocus", region: "Iran", type: "agricultural" },
+  ],
+  winter: [
+    { lat: -33.92, lng: 18.42, intensity: 0.8, species: "Protea", region: "Cape Town, South Africa", type: "wild" },
+    { lat: -27.47, lng: 153.03, intensity: 0.7, species: "Jacaranda", region: "Queensland, Australia", type: "tropical" },
+    { lat: 20.67, lng: -103.35, intensity: 0.75, species: "Poinsettia", region: "Jalisco, Mexico", type: "tropical" },
+    { lat: 19.43, lng: -99.13, intensity: 0.8, species: "Poinsettia", region: "Mexico City, Mexico", type: "tropical" },
+  ],
+};
+
+// National flower markers
+const nationalFlowers = [
+  { lat: 48.38, lng: 31.17, species: "Sunflower", country: "Ukraine", flag: "🇺🇦" },
+  { lat: 36.2, lng: 138.25, species: "Cherry Blossom", country: "Japan", flag: "🇯🇵" },
+  { lat: 28.61, lng: 77.2, species: "Lotus", country: "India", flag: "🇮🇳" },
+  { lat: 1.35, lng: 103.82, species: "Orchid", country: "Singapore", flag: "🇸🇬" },
+  { lat: 52.13, lng: 5.29, species: "Tulip", country: "Netherlands", flag: "🇳🇱" },
+  { lat: 38.9, lng: -77.04, species: "Rose", country: "USA", flag: "🇺🇸" },
 ];
+
+const getColorForIntensity = (intensity: number): string => {
+  return intensity > 0.8 ? "#ff1493" : intensity > 0.6 ? "#ff69b4" : intensity > 0.4 ? "#ffb6c1" : "#e6e6fa";
+};
+
+const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 export const InteractiveBloomMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const [mapboxToken, setMapboxToken] = useState("");
-  const [mapInitialized, setMapInitialized] = useState(false);
-  const [selectedHotspot, setSelectedHotspot] = useState<typeof bloomHotspots[0] | null>(null);
-
-  const initializeMap = () => {
-    if (!mapContainer.current || !mapboxToken) return;
-
-    mapboxgl.accessToken = mapboxToken;
-
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: "mapbox://styles/mapbox/satellite-streets-v12",
-      projection: { name: "globe" },
-      zoom: 1.5,
-      center: [20, 20],
-      pitch: 0,
-    });
-
-    map.current.addControl(
-      new mapboxgl.NavigationControl({
-        visualizePitch: true,
-      }),
-      "top-right"
-    );
-
-    map.current.on("style.load", () => {
-      map.current?.setFog({
-        color: "rgb(186, 210, 235)",
-        "high-color": "rgb(36, 92, 223)",
-        "horizon-blend": 0.02,
-        "space-color": "rgb(11, 11, 25)",
-        "star-intensity": 0.6,
-      });
-
-      // Add bloom hotspot markers
-      bloomHotspots.forEach((hotspot) => {
-        const el = document.createElement("div");
-        el.className = "bloom-marker";
-        el.style.cssText = `
-          width: ${hotspot.intensity / 5}px;
-          height: ${hotspot.intensity / 5}px;
-          background: radial-gradient(circle, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.3));
-          border: 2px solid rgba(255, 255, 255, 0.8);
-          border-radius: 50%;
-          cursor: pointer;
-          animation: pulse 2s infinite;
-        `;
-
-        new mapboxgl.Marker(el)
-          .setLngLat(hotspot.coords as [number, number])
-          .addTo(map.current!);
-
-        el.addEventListener("click", () => {
-          setSelectedHotspot(hotspot);
-          map.current?.flyTo({
-            center: hotspot.coords as [number, number],
-            zoom: 6,
-            duration: 2000,
-          });
-        });
-      });
-    });
-
-    // Gentle rotation
-    let userInteracting = false;
-    const secondsPerRevolution = 300;
-
-    function spinGlobe() {
-      if (!map.current || userInteracting) return;
-      const zoom = map.current.getZoom();
-      if (zoom < 3) {
-        const center = map.current.getCenter();
-        center.lng -= 360 / secondsPerRevolution;
-        map.current.easeTo({ center, duration: 1000, easing: (n) => n });
-      }
-    }
-
-    map.current.on("mousedown", () => (userInteracting = true));
-    map.current.on("mouseup", () => {
-      userInteracting = false;
-      spinGlobe();
-    });
-    map.current.on("moveend", spinGlobe);
-
-    spinGlobe();
-    setMapInitialized(true);
-  };
+  const map = useRef<L.Map | null>(null);
+  const currentMarkers = useRef<L.CircleMarker[]>([]);
+  const nationalMarkers = useRef<L.Marker[]>([]);
+  const [currentMonth, setCurrentMonth] = useState(3); // April
+  const [currentSeason, setCurrentSeason] = useState<keyof typeof floweringData>("spring");
+  const [selectedHotspot, setSelectedHotspot] = useState<{ species: string; region: string; intensity: number; type: string } | null>(null);
+  const [activeFilter, setActiveFilter] = useState("current");
 
   useEffect(() => {
+    if (!mapContainer.current || map.current) return;
+
+    // Initialize map
+    map.current = L.map(mapContainer.current).setView([30, 0], 2);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map.current);
+
+    updateMapMarkers(currentSeason);
+    addNationalFlowerMarkers();
+
     return () => {
       map.current?.remove();
+      map.current = null;
     };
   }, []);
 
-  return (
-    <div className="space-y-4">
-      {!mapInitialized && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            To display the interactive map, enter your Mapbox public token.{" "}
-            <a
-              href="https://mapbox.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline font-semibold"
-            >
-              Get your free token here
-            </a>
-          </AlertDescription>
-        </Alert>
-      )}
+  const updateMapMarkers = (season: keyof typeof floweringData) => {
+    if (!map.current) return;
 
-      {!mapInitialized && (
-        <Card className="p-4">
-          <div className="flex gap-2">
-            <Input
-              type="text"
-              placeholder="Enter Mapbox Public Token (pk.xxx...)"
-              value={mapboxToken}
-              onChange={(e) => setMapboxToken(e.target.value)}
-            />
-            <Button onClick={initializeMap} disabled={!mapboxToken}>
-              Load Map
+    // Clear existing markers
+    currentMarkers.current.forEach((marker) => map.current?.removeLayer(marker));
+    currentMarkers.current = [];
+
+    // Add new markers
+    floweringData[season].forEach((location) => {
+      const radius = location.intensity * 25;
+      const color = getColorForIntensity(location.intensity);
+
+      const marker = L.circleMarker([location.lat, location.lng], {
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.7,
+        radius: radius,
+      }).addTo(map.current!);
+
+      marker.bindPopup(`
+        <div class="p-2">
+          <strong class="text-lg">${location.species}</strong><br>
+          <span class="text-sm">Region: ${location.region}</span><br>
+          <span class="text-sm">Type: ${location.type}</span><br>
+          <span class="text-sm">Flowering Intensity: ${Math.round(location.intensity * 100)}%</span>
+        </div>
+      `);
+
+      marker.on("click", () => {
+        setSelectedHotspot(location);
+      });
+
+      currentMarkers.current.push(marker);
+    });
+  };
+
+  const addNationalFlowerMarkers = () => {
+    if (!map.current) return;
+
+    nationalFlowers.forEach((flower) => {
+      const icon = L.divIcon({
+        html: `<div style="background: rgba(255,105,180,0.9); border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${flower.flag}</div>`,
+        className: "",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+
+      const marker = L.marker([flower.lat, flower.lng], { icon }).addTo(map.current!);
+
+      marker.bindPopup(`
+        <div class="p-2">
+          <strong class="text-lg">${flower.species}</strong><br>
+          <span class="text-sm">National Flower of ${flower.country}</span><br>
+          <span class="text-xl">${flower.flag}</span>
+        </div>
+      `);
+
+      nationalMarkers.current.push(marker);
+    });
+  };
+
+  const handleMonthChange = (month: number) => {
+    setCurrentMonth(month);
+
+    // Update season based on month
+    let season: keyof typeof floweringData;
+    if (month >= 3 && month <= 5) season = "spring";
+    else if (month >= 6 && month <= 8) season = "summer";
+    else if (month >= 9 && month <= 11) season = "fall";
+    else season = "winter";
+
+    setCurrentSeason(season);
+    updateMapMarkers(season);
+  };
+
+  const handleFilterClick = (filter: string) => {
+    setActiveFilter(filter);
+    if (filter === "current") {
+      updateMapMarkers(currentSeason);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Seasonal Timeline Slider */}
+      <Card className="p-6">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium flex items-center gap-2">
+              <Globe className="h-4 w-4 text-primary" />
+              Seasonal Timeline:
+            </label>
+            <Badge variant="secondary" className="text-sm">
+              {months[currentMonth]} 2024
+            </Badge>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="11"
+            value={currentMonth}
+            onChange={(e) => handleMonthChange(parseInt(e.target.value))}
+            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer slider"
+          />
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Jan</span>
+            <span>Apr</span>
+            <span>Jul</span>
+            <span>Oct</span>
+            <span>Dec</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Map Container */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          <div ref={mapContainer} className="w-full h-[500px] rounded-lg overflow-hidden shadow-lg border" />
+
+          {/* Map Controls */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={activeFilter === "current" ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleFilterClick("current")}
+            >
+              <Flower2 className="h-4 w-4 mr-2" />
+              Current Bloom
+            </Button>
+            <Button variant="outline" size="sm">
+              Agricultural Flowers
+            </Button>
+            <Button variant="outline" size="sm">
+              Wildflowers
+            </Button>
+            <Button variant="outline" size="sm">
+              National Flowers
             </Button>
           </div>
-        </Card>
-      )}
-
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <div
-            ref={mapContainer}
-            className="w-full h-[500px] rounded-lg overflow-hidden shadow-medium"
-          />
         </div>
 
-        <Card className="p-6 space-y-4">
+        {/* Sidebar */}
+        <Card className="p-6 space-y-6">
           <div>
             <h4 className="font-semibold mb-2 flex items-center gap-2">
               <MapPin className="h-5 w-5 text-primary" />
               Live Bloom Hotspots
             </h4>
-            <p className="text-sm text-muted-foreground">
-              Click markers to explore active flowering regions
-            </p>
+            <p className="text-sm text-muted-foreground">Click markers to explore active flowering regions</p>
           </div>
 
           {selectedHotspot ? (
-            <div className="space-y-3 p-4 bg-gradient-hero rounded-lg">
-              <h5 className="font-semibold text-lg">{selectedHotspot.name}</h5>
-              <p className="text-sm italic text-muted-foreground">{selectedHotspot.species}</p>
-              <div className="flex items-center gap-2">
-                <span className="text-sm">Bloom Intensity:</span>
-                <Badge variant="default" className="bg-success">
-                  {selectedHotspot.intensity}%
-                </Badge>
+            <div className="space-y-3 p-4 bg-gradient-to-br from-primary/10 to-accent/10 rounded-lg border">
+              <h5 className="font-semibold text-lg">{selectedHotspot.species}</h5>
+              <p className="text-sm text-muted-foreground">{selectedHotspot.region}</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Bloom Intensity:</span>
+                  <Badge variant="default" className="bg-success">
+                    {Math.round(selectedHotspot.intensity * 100)}%
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Type:</span>
+                  <Badge variant="secondary">{selectedHotspot.type}</Badge>
+                </div>
               </div>
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setSelectedHotspot(null)}>
+                View All Hotspots
+              </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              {bloomHotspots.slice(0, 4).map((hotspot, i) => (
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                {currentSeason.charAt(0).toUpperCase() + currentSeason.slice(1)} Blooms
+              </p>
+              {floweringData[currentSeason].slice(0, 5).map((hotspot, i) => (
                 <div
                   key={i}
-                  className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+                  className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-all hover:scale-105"
                   onClick={() => setSelectedHotspot(hotspot)}
                 >
                   <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold text-sm">{hotspot.name}</p>
-                      <p className="text-xs text-muted-foreground">{hotspot.species}</p>
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm">{hotspot.species}</p>
+                      <p className="text-xs text-muted-foreground">{hotspot.region}</p>
                     </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {hotspot.intensity}%
+                    <Badge
+                      variant="secondary"
+                      className="text-xs"
+                      style={{
+                        backgroundColor: getColorForIntensity(hotspot.intensity) + "40",
+                        color: getColorForIntensity(hotspot.intensity),
+                      }}
+                    >
+                      {Math.round(hotspot.intensity * 100)}%
                     </Badge>
                   </div>
                 </div>
@@ -205,9 +287,22 @@ export const InteractiveBloomMap = () => {
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 0.8; }
-          50% { transform: scale(1.2); opacity: 1; }
+        .slider::-webkit-slider-thumb {
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: hsl(var(--primary));
+          cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: hsl(var(--primary));
+          cursor: pointer;
+          border: none;
         }
       `}</style>
     </div>
